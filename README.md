@@ -33,7 +33,6 @@ Command
 - It will replace spaces in identifiers (first column) with underscores `_`.
 - It will skip rows that are empty or start with `'-`.
 
-
 ## Template ##
 The [example template](template.xlsx) from this repo will result in:
 - AppResources.resx
