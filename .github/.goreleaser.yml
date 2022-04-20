@@ -3,7 +3,7 @@ project_name: Excel2Resource
 builds:
   - # Build macOS, Linux and Windows versions
     dir: .
-    main: ./cmd/main.go
+    main: ./main.go
     binary: Excel2Resource
     goos:
       - linux
