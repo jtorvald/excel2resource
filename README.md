@@ -6,7 +6,7 @@ mobile app in Xamarin without needing to edit resource files. Everybody knows ho
 
 ## Download releases ##
 
-The best is to [download the binary for your platform and run the executable](/jtorvald/excel2resource/releases).
+The best is to [download the binary for your platform and run the executable](https://github.com/jtorvald/excel2resource/releases).
 
 To build from source, you'll need to clone the repository and run `go build -o ./bin/Excel2Resource main.go`
 from within the cmd directory.
