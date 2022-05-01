@@ -4,6 +4,10 @@ This tool will convert sheets in an Excel file or a path full of Excel files to 
 The reason this tool was developed was to give other non-technical people the possibility to translate resources from a
 mobile app in Xamarin without needing to edit resource files. Everybody knows how to use Excel, right?
 
+[![GitHub go.mod Go version of a Go module](https://img.shields.io/github/go-mod/go-version/jtorvald/excel2resource)](https://github.com/jtorvald/excel2resource)
+[![GoReportCard](https://goreportcard.com/badge/github.com/jtorvald/excel2resource)]((https://goreportcard.com/report/github.com/jtorvald/excel2resource))
+
+
 ## Download releases ##
 
 The best is to [download the binary for your platform and run the executable](https://github.com/jtorvald/excel2resource/releases).
@@ -49,3 +53,5 @@ I don't think it will do any harm but just in case: **use this tool at your own 
 
 # License #
 [MIT](LICENSE)
+
+[![made-with-Go](https://img.shields.io/badge/Made%20with-Go-1f425f.svg)](https://go.dev/)
