@@ -232,13 +232,21 @@ func importResx(resxFileName, outputPath string) (bool, error) {
 			return false, err
 		}
 		for _, v := range translationRoot.Data {
+			if newData[v.Name].translations == nil {
+				orderedKeys = append(orderedKeys, v.Name)
+
+				fmt.Println(v.Name, "does not exist in neutral language")
+				newData[v.Name] = translation{
+					name:         fileName,
+					key:          v.Name,
+					neutral:      "MISSING",
+					comment:      "WARNING",
+					translations: map[string]string{},
+				}
+			}
 			newData[v.Name].translations[code] = v.Value
 		}
 	}
-
-	//for k, v := range newData {
-	//	fmt.Println(k, v.key, v.neutral, v.translations, v.comment)
-	//}
 
 	err = writeExcelFile(filepath.Join(outputPath, fileName+".xlsx"), fileName, newData, orderedKeys)
 	if err != nil {
