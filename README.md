@@ -43,6 +43,16 @@ The [example template](template.xlsx) from this repo will result in:
 
 If you want to ignore a row it needs to be empty or start with a dash. You can achieve this in Excel with entering `'-` in a cell. 
 
+## Convert resource file into XLSX file ##
+The following command reads the resource file Translations.resx
+(and the specific language translations .nl.resx, .en-UK.resx, .de.resx, .es.resx)
+and saves it as Translations.xlsx. 
+
+**This functionality is not fully tested yet.**
+```
+./Excel2Resource -input=./Resx/Translations.resx -output=. -invert=true
+```
+
 ## Disclaimer ##
 
 I don't think it will do any harm but just in case: **use this tool at your own risk**. 
