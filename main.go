@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"syscall"
 
 	"encoding/xml"
@@ -133,7 +134,7 @@ loop:
 				fmt.Println("SIGHUP, need to re-read some configuration...")
 
 			default:
-				fmt.Println("Uknown signal: ", sig)
+				fmt.Println("Unknown signal: ", sig)
 			}
 		}
 	}
@@ -197,18 +198,19 @@ func importResx(resxFileName, outputPath string) (bool, error) {
 		return false, err
 	}
 
+	orderedKeys := make([]string, len(root.Data))
 	newData := make(map[string]translation, 0)
-	for _, v := range root.Data {
+	for i, v := range root.Data {
+		orderedKeys[i] = v.Name
 		newData[v.Name] = translation{
 			key:          v.Name,
 			neutral:      v.Value,
 			comment:      v.Comment,
 			translations: map[string]string{},
 		}
-
-		//fmt.Println(k, v)
-		_ = v
 	}
+
+	sort.Strings(orderedKeys)
 
 	for _, localeFile := range matches {
 		// ./Resx/Resources.se.resx
@@ -238,14 +240,15 @@ func importResx(resxFileName, outputPath string) (bool, error) {
 	//	fmt.Println(k, v.key, v.neutral, v.translations, v.comment)
 	//}
 
-	err = writeExcelFile(filepath.Join(outputPath, fileName+".xlsx"), fileName, newData)
+	err = writeExcelFile(filepath.Join(outputPath, fileName+".xlsx"), fileName, newData, orderedKeys)
 	if err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func writeExcelFile(outputFile, name string, data map[string]translation) error {
+func writeExcelFile(outputFile, name string, data map[string]translation, orderedKeys []string) error {
+
 	var wb *xlsx.File
 	if _, err := os.Stat(outputFile); errors.Is(err, os.ErrNotExist) {
 		wb = xlsx.NewFile()
@@ -258,15 +261,25 @@ func writeExcelFile(outputFile, name string, data map[string]translation) error 
 		}
 	}
 
+	var sht *xlsx.Sheet
+	var err error
+	// new file
 	if len(wb.Sheets) == 0 {
-		wb.AddSheet(name)
+		sht, err = wb.AddSheet(name)
 	} else {
-		for i := 0; i < wb.Sheets[0].MaxRow; i++ {
-			wb.Sheets[0].RemoveRowAtIndex(0)
+		if _, exists := wb.Sheet[name]; exists {
+			sht = wb.Sheet[name]
+			for i := 0; i < sht.MaxRow; i++ {
+				_ = sht.RemoveRowAtIndex(0)
+			}
+		} else {
+			sht, err = wb.AddSheet(name)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
-
-	row := wb.Sheets[0].AddRow()
+	row := sht.AddRow()
 	row.AddCell().Value = "identifier"
 	row.AddCell().Value = "description"
 	row.AddCell().Value = "neutral"
@@ -277,16 +290,18 @@ func writeExcelFile(outputFile, name string, data map[string]translation) error 
 		break
 	}
 
-	for _, v := range data {
-		row := wb.Sheets[0].AddRow()
+	for _, key := range orderedKeys {
+		row := sht.AddRow()
+		obj := data[key]
 
-		row.AddCell().Value = v.key
-		row.AddCell().Value = v.comment
-		row.AddCell().Value = v.neutral
-		for _, value := range v.translations {
+		row.AddCell().Value = obj.key
+		row.AddCell().Value = obj.comment
+		row.AddCell().Value = obj.neutral
+		for _, value := range obj.translations {
 			row.AddCell().Value = value
 		}
 	}
+
 	return wb.Save(outputFile)
 }
 
