@@ -20,6 +20,7 @@ import (
 
 	"io/ioutil"
 
+	"github.com/sirupsen/logrus"
 	"github.com/tealeg/xlsx"
 )
 
@@ -28,28 +29,40 @@ func main() {
 	inputFile := flag.String("input", "", "Excel file or directory to watch. All .xlsx files will be parsed. With -invert=true this will read the .resx file(s)")
 	watch := flag.Bool("watch", false, "Watch for file changes. If false, just execute once")
 	invert := flag.Bool("invert", false, "Indicate that input file is .RESX and generate an Excel file as output")
+	verbose := flag.Bool("v", false, "Verbose")
+	trace := flag.Bool("vv", false, "Very verbose")
 
 	flag.Parse()
 
 	if *outputPath == "" {
-		fmt.Println("Specify the output path for resource files: --output=PATH")
+		logrus.Error("Specify the output path for resource files: --output=PATH")
 		os.Exit(1)
 	}
 	if *inputFile == "" {
-		fmt.Println("Specify the Excel file or path: --input=PATH")
+		logrus.Error("Specify the Excel file or path: --input=PATH")
 		os.Exit(2)
+	}
+
+	if *trace {
+		logrus.StandardLogger().SetLevel(logrus.TraceLevel)
+		logrus.Println("VERY VERBOSE MODE")
+	} else if *verbose {
+		logrus.StandardLogger().SetLevel(logrus.DebugLevel)
+		logrus.Println("VERBOSE MODE")
+	} else {
+		logrus.StandardLogger().SetLevel(logrus.InfoLevel)
 	}
 
 	*outputPath = expandUserDirectory(*outputPath)
 	*inputFile = expandUserDirectory(*inputFile)
 
 	if _, err := os.Stat(*inputFile); errors.Is(err, os.ErrNotExist) {
-		fmt.Println("Given Excel file/path does not exist")
+		logrus.Error("Given Excel file/path does not exist")
 		os.Exit(3)
 	}
 
 	if _, err := os.Stat(*outputPath); errors.Is(err, os.ErrNotExist) {
-		fmt.Println("Given output path does not exist")
+		logrus.Error("Given output path does not exist")
 		os.Exit(3)
 	}
 
@@ -60,10 +73,10 @@ func main() {
 		}
 
 		if success {
-			fmt.Println("successfully converted the RESX to Excel")
+			logrus.Info("Successfully converted the RESX to Excel")
 
 		} else {
-			fmt.Println("could not convert RESX to Excel for some unknown reason")
+			logrus.Info("Could not convert RESX to Excel for some unknown reason")
 		}
 
 	} else {
@@ -92,11 +105,11 @@ func watchForFileChanges(excelFile, outputPath string) {
 		for {
 			select {
 			case event := <-watcher.Events:
-				log.Println("event:", event)
+				logrus.Debug("event:", event)
 				if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Rename == fsnotify.Rename {
 
 					if strings.HasSuffix(event.Name, ".xlsx") {
-						log.Println("modified or created file:", event.Name)
+						logrus.Info("modified or created file:", event.Name)
 						processXlsx(event.Name, outputPath)
 					}
 				}
@@ -126,20 +139,20 @@ loop:
 				fallthrough
 			case syscall.SIGQUIT:
 
-				fmt.Println("")
-				fmt.Println("Got interrupt....")
+				logrus.Debug("")
+				logrus.Debug("Got interrupt....")
 
 				break loop
 			case syscall.SIGHUP:
-				fmt.Println("SIGHUP, need to re-read some configuration...")
+				logrus.Debug("SIGHUP, need to re-read some configuration...")
 
 			default:
-				fmt.Println("Unknown signal: ", sig)
+				logrus.Debug("Unknown signal: ", sig)
 			}
 		}
 	}
 
-	fmt.Println("Shutting down...")
+	logrus.Info("Shutting down...")
 }
 
 func expandUserDirectory(path string) string {
@@ -189,20 +202,28 @@ func importResx(resxFileName, outputPath string) (bool, error) {
 	name := strings.TrimSuffix(resxFileName, ext)
 	pattern := name + ".*" + ext
 
-	slashedPath := filepath.ToSlash(resxFileName)
-	baseDir := slashedPath[:strings.LastIndexByte(slashedPath, '/')] + "/"
-	fileName := strings.TrimPrefix(name, baseDir)
+	baseDir, baseName, err := getPathInfo(resxFileName, os.PathSeparator)
+	if err != nil {
+		panic(err)
+	}
+	logrus.Trace("Base Dir", baseDir, "Base Name", baseName)
+	//slashedPath := filepath.ToSlash(resxFileName)
+	//baseDir := slashedPath[:strings.LastIndexByte(slashedPath, '/')] + "/"
+	//fileName := strings.TrimPrefix(name, baseDir)
 
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return false, err
 	}
-
-	orderedKeys := make([]string, len(root.Data))
-	newData := make(map[string]translation, 0)
-	for i, v := range root.Data {
-		orderedKeys[i] = v.Name
-		newData[v.Name] = translation{
+	orderedKeys := make([]string, 0)
+	newData := data{
+		sheetName:    baseName,
+		cultureCodes: make([]string, 0),
+		identifiers:  map[string]translation{},
+	}
+	for _, v := range root.Data {
+		orderedKeys = append(orderedKeys, v.Name)
+		newData.identifiers[v.Name] = translation{
 			key:          v.Name,
 			neutral:      v.Value,
 			comment:      v.Comment,
@@ -210,17 +231,18 @@ func importResx(resxFileName, outputPath string) (bool, error) {
 		}
 	}
 
-	sort.Strings(orderedKeys)
-
 	for _, localeFile := range matches {
+
 		// ./Resx/Resources.se.resx
 		code := strings.TrimPrefix(localeFile, filepath.Clean(baseDir)+string(os.PathSeparator))
 		// Resources.se.resx
-		code = strings.TrimPrefix(code, fileName+".")
+		code = strings.TrimPrefix(code, baseName+".")
 		// se.resx
 		code = strings.TrimSuffix(code, ext)
 		// se
 
+		newData.cultureCodes = append(newData.cultureCodes, code)
+		logrus.Debug("Found locale file: ", localeFile, " Culture code: ", code)
 		byteValue, err := readFile(localeFile)
 		if err != nil {
 			return false, err
@@ -232,30 +254,63 @@ func importResx(resxFileName, outputPath string) (bool, error) {
 			return false, err
 		}
 		for _, v := range translationRoot.Data {
-			if newData[v.Name].translations == nil {
-				orderedKeys = append(orderedKeys, v.Name)
+			logrus.Trace("\\ Found translation for: ", v.Name, " Value: ", strings.Replace(v.Value, "\n", " ", 0))
+			orderedKeys = append(orderedKeys, v.Name)
 
-				fmt.Println(v.Name, "does not exist in neutral language")
-				newData[v.Name] = translation{
-					name:         fileName,
+			if newData.identifiers[v.Name].translations == nil {
+
+				logrus.Warn(v.Name, " does not exist in neutral language")
+				newData.identifiers[v.Name] = translation{
+					name:         baseName,
 					key:          v.Name,
 					neutral:      "MISSING",
 					comment:      "WARNING",
 					translations: map[string]string{},
 				}
 			}
-			newData[v.Name].translations[code] = v.Value
+			logrus.Trace("Adding to key ", v.Name, " translation code ", code, " value ", v.Value)
+			newData.identifiers[v.Name].translations[code] = v.Value
+
 		}
 	}
 
-	err = writeExcelFile(filepath.Join(outputPath, fileName+".xlsx"), fileName, newData, orderedKeys)
+	orderedKeys = unique(orderedKeys)
+
+	sort.Strings(orderedKeys)
+
+	newData.orderedKeys = orderedKeys
+
+	err = writeExcelFile(filepath.Join(outputPath, baseName+".xlsx"), newData)
 	if err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func writeExcelFile(outputFile, name string, data map[string]translation, orderedKeys []string) error {
+func unique(intSlice []string) []string {
+	keys := make(map[string]bool)
+	list := []string{}
+	for _, entry := range intSlice {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
+}
+
+func getPathInfo(path string, pathSeparator rune) (baseDir string, baseName string, err error) {
+
+	ext := filepath.Ext(path)
+	name := strings.TrimSuffix(path, ext)
+
+	baseDir = path[:strings.LastIndex(path, string(pathSeparator))] + string(pathSeparator)
+	baseName = strings.TrimPrefix(name, baseDir)
+
+	return
+}
+
+func writeExcelFile(outputFile string, data data) error {
 
 	var wb *xlsx.File
 	if _, err := os.Stat(outputFile); errors.Is(err, os.ErrNotExist) {
@@ -273,15 +328,15 @@ func writeExcelFile(outputFile, name string, data map[string]translation, ordere
 	var err error
 	// new file
 	if len(wb.Sheets) == 0 {
-		sht, err = wb.AddSheet(name)
+		sht, err = wb.AddSheet(data.sheetName)
 	} else {
-		if _, exists := wb.Sheet[name]; exists {
-			sht = wb.Sheet[name]
+		if _, exists := wb.Sheet[data.sheetName]; exists {
+			sht = wb.Sheet[data.sheetName]
 			for i := 0; i < sht.MaxRow; i++ {
 				_ = sht.RemoveRowAtIndex(0)
 			}
 		} else {
-			sht, err = wb.AddSheet(name)
+			sht, err = wb.AddSheet(data.sheetName)
 			if err != nil {
 				panic(err)
 			}
@@ -291,22 +346,19 @@ func writeExcelFile(outputFile, name string, data map[string]translation, ordere
 	row.AddCell().Value = "identifier"
 	row.AddCell().Value = "description"
 	row.AddCell().Value = "neutral"
-	for _, v := range data {
-		for locale, _ := range v.translations {
-			row.AddCell().Value = locale
-		}
-		break
+	for _, v := range data.cultureCodes {
+		row.AddCell().Value = v
 	}
 
-	for _, key := range orderedKeys {
+	for _, key := range data.orderedKeys {
 		row := sht.AddRow()
-		obj := data[key]
+		obj := data.identifiers[key]
 
 		row.AddCell().Value = obj.key
 		row.AddCell().Value = obj.comment
 		row.AddCell().Value = obj.neutral
-		for _, value := range obj.translations {
-			row.AddCell().Value = value
+		for _, v := range data.cultureCodes {
+			row.AddCell().Value = obj.translations[v]
 		}
 	}
 
@@ -423,6 +475,13 @@ func processXlsx(excelFileName, outputPath string) {
 		}
 	}
 
+}
+
+type data struct {
+	sheetName    string
+	cultureCodes []string
+	identifiers  map[string]translation
+	orderedKeys  []string
 }
 
 type translation struct {
